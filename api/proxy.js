@@ -1,11 +1,10 @@
 // api/proxy.js
-// V1 REST API Version - Uses URL params for auth
-const fetch = require('node-fetch');
+// FIXED V1 REST API Version - Properly sends data to Printavo
 
 const PRINTAVO_CONFIG = {
   apiUrlV1: 'https://www.printavo.com/api/v1',
   email: 'aurixlab@gmail.com',
-  token: 'Dw9WsBffRzogNyfOCEhswA' // Update this with your new token
+  token: 'Dw9WsBffRzogNyfOCEhswA'
 };
 
 const ALLOWED_ORIGINS = [
@@ -68,12 +67,15 @@ module.exports = async (req, res) => {
     
     const { endpoint, method = 'GET', data = null } = req.body;
     
+    console.log('📦 Request body:', JSON.stringify(req.body, null, 2));
+    
     // Build URL with auth params
     const url = new URL(`${PRINTAVO_CONFIG.apiUrlV1}/${endpoint}`);
     url.searchParams.append('email', PRINTAVO_CONFIG.email);
     url.searchParams.append('token', PRINTAVO_CONFIG.token);
     
     console.log('📤 Calling:', method, url.pathname);
+    console.log('📋 Data being sent:', JSON.stringify(data, null, 2));
     
     // Make request to Printavo v1
     const options = {
@@ -84,14 +86,20 @@ module.exports = async (req, res) => {
       }
     };
     
+    // CRITICAL FIX: Properly send data in request body
     if (data && (method === 'POST' || method === 'PUT' || method === 'PATCH')) {
       options.body = JSON.stringify(data);
+      console.log('🔧 Body attached:', options.body);
     }
+    
+    console.log('🌐 Full URL:', url.toString());
+    console.log('🔨 Request options:', JSON.stringify(options, null, 2));
     
     const response = await fetch(url.toString(), options);
     const responseText = await response.text();
     
     console.log('📨 Status:', response.status);
+    console.log('📨 Response:', responseText);
     
     let result;
     try {
@@ -117,11 +125,13 @@ module.exports = async (req, res) => {
   } catch (error) {
     console.error('==========================================');
     console.error('❌ Proxy error:', error.message);
+    console.error('Stack:', error.stack);
     console.error('==========================================\n');
     
     return res.status(500).json({ 
       error: 'Proxy server error',
-      message: error.message
+      message: error.message,
+      stack: error.stack
     });
   }
 };
