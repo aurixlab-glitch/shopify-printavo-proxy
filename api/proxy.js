@@ -1,5 +1,5 @@
 // api/proxy.js
-// FIXED V1 REST API - Sends data as URL-encoded form data
+// WORKING V1 REST API - Form-urlencoded with correct parameters
 
 const PRINTAVO_CONFIG = {
   apiUrlV1: 'https://www.printavo.com/api/v1',
@@ -39,7 +39,7 @@ module.exports = async (req, res) => {
     return res.status(200).json({
       status: 'ok',
       api: 'v1',
-      service: 'Printavo V1 REST Proxy - Form Data Edition',
+      service: 'Printavo V1 REST Proxy - WORKING VERSION',
       timestamp: new Date().toISOString(),
       credentials: {
         email: PRINTAVO_CONFIG.email ? '✅ Set' : '❌ Missing',
@@ -70,14 +70,13 @@ module.exports = async (req, res) => {
     console.log('📦 Request:', { endpoint, method });
     console.log('📋 Data:', JSON.stringify(data, null, 2));
     
-    // Build base URL
+    // Build base URL with auth
     const url = new URL(`${PRINTAVO_CONFIG.apiUrlV1}/${endpoint}`);
     url.searchParams.append('email', PRINTAVO_CONFIG.email);
     url.searchParams.append('token', PRINTAVO_CONFIG.token);
     
     console.log('🌐 URL:', url.toString());
     
-    // CRITICAL FIX: Send as form data, not JSON
     const options = {
       method: method,
       headers: {
@@ -85,18 +84,32 @@ module.exports = async (req, res) => {
       }
     };
     
-    // For POST/PUT/PATCH, send as form-urlencoded
+    // For POST/PUT/PATCH, convert to form-urlencoded
     if (data && (method === 'POST' || method === 'PUT' || method === 'PATCH')) {
-      // Flatten nested object into form params
-      const formParams = flattenObject(data);
-      const formBody = new URLSearchParams();
+      const formParams = new URLSearchParams();
       
-      for (const [key, value] of Object.entries(formParams)) {
-        formBody.append(key, value);
+      // Add order data (flat parameters, not nested)
+      if (data.orderData) {
+        for (const [key, value] of Object.entries(data.orderData)) {
+          formParams.append(key, value);
+        }
+      }
+      
+      // Add line items if present
+      if (data.lineItems && Array.isArray(data.lineItems)) {
+        data.lineItems.forEach((item, index) => {
+          formParams.append(`lineitems_attributes[${index}][name]`, item.name || '');
+          formParams.append(`lineitems_attributes[${index}][style]`, item.style || '');
+          formParams.append(`lineitems_attributes[${index}][quantity]`, item.quantity || '1');
+          formParams.append(`lineitems_attributes[${index}][unit_price]`, item.unit_price || '0.00');
+          if (item.description) {
+            formParams.append(`lineitems_attributes[${index}][description]`, item.description);
+          }
+        });
       }
       
       options.headers['Content-Type'] = 'application/x-www-form-urlencoded';
-      options.body = formBody.toString();
+      options.body = formParams.toString();
       
       console.log('📤 Form body:', options.body);
     }
@@ -123,7 +136,7 @@ module.exports = async (req, res) => {
       return res.status(response.status).json(result);
     }
     
-    console.log('✅ Success!');
+    console.log('✅ Success! Order ID:', result.id || 'N/A');
     console.log('==========================================\n');
     
     return res.status(200).json(result);
@@ -139,30 +152,3 @@ module.exports = async (req, res) => {
     });
   }
 };
-
-// Helper function to flatten nested objects for form encoding
-function flattenObject(obj, prefix = '') {
-  const flattened = {};
-  
-  for (const [key, value] of Object.entries(obj)) {
-    const fullKey = prefix ? `${prefix}[${key}]` : key;
-    
-    if (value && typeof value === 'object' && !Array.isArray(value)) {
-      // Recursively flatten nested objects
-      Object.assign(flattened, flattenObject(value, fullKey));
-    } else if (Array.isArray(value)) {
-      // Handle arrays
-      value.forEach((item, index) => {
-        if (item && typeof item === 'object') {
-          Object.assign(flattened, flattenObject(item, `${fullKey}[${index}]`));
-        } else {
-          flattened[`${fullKey}[${index}]`] = item;
-        }
-      });
-    } else {
-      flattened[fullKey] = value;
-    }
-  }
-  
-  return flattened;
-}
