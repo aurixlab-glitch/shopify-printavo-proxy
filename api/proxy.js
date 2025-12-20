@@ -1,17 +1,13 @@
 // api/proxy.js
-// Serverless function for Vercel
-// Proxies requests from Shopify to Printavo (bypasses CORS)
-
+// V1 REST API Version - Uses URL params for auth
 const fetch = require('node-fetch');
 
-// Your Printavo API credentials
 const PRINTAVO_CONFIG = {
-  apiUrl: 'https://www.printavo.com/api/v2',
+  apiUrlV1: 'https://www.printavo.com/api/v1',
   email: 'aurixlab@gmail.com',
-  token: 'Dw9WsBffRzogNyfOCEhswA'
+  token: 'Dw9WsBffRzogNyfOCEhswA' // Update this with your new token
 };
 
-// Allowed origins for security
 const ALLOWED_ORIGINS = [
   'https://budgetpromotion.myshopify.com',
   'https://www.budgetpromotion.com',
@@ -19,203 +15,113 @@ const ALLOWED_ORIGINS = [
 ];
 
 module.exports = async (req, res) => {
-  const startTime = Date.now();
-  
-  // ==========================================
-  // CORS Configuration
-  // ==========================================
+  // CORS headers
   const origin = req.headers.origin || req.headers.referer;
-  
-  // Set CORS headers
   if (origin) {
     const isAllowed = ALLOWED_ORIGINS.some(allowed => 
       origin.includes(allowed.replace('https://', '').replace('http://', ''))
     );
-    
-    if (isAllowed) {
-      res.setHeader('Access-Control-Allow-Origin', origin);
-    } else {
-      res.setHeader('Access-Control-Allow-Origin', '*'); // Allow all for now
-    }
+    res.setHeader('Access-Control-Allow-Origin', isAllowed ? origin : '*');
   } else {
     res.setHeader('Access-Control-Allow-Origin', '*');
   }
   
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS, GET');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-API-Key, email, token');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   res.setHeader('Access-Control-Max-Age', '86400');
   
-  // ==========================================
-  // Handle Preflight Request
-  // ==========================================
+  // Handle preflight
   if (req.method === 'OPTIONS') {
-    console.log('✓ Preflight request handled');
     return res.status(200).end();
   }
   
-  // ==========================================
-  // Handle GET (Health Check)
-  // ==========================================
+  // Health check
   if (req.method === 'GET') {
     return res.status(200).json({
       status: 'ok',
-      service: 'Shopify-Printavo Proxy',
+      api: 'v1',
+      service: 'Printavo V1 REST Proxy',
       timestamp: new Date().toISOString(),
-      message: 'Proxy is running. Use POST to forward requests.',
       credentials: {
         email: PRINTAVO_CONFIG.email ? '✅ Set' : '❌ Missing',
-        token: PRINTAVO_CONFIG.token ? '✅ Set' : '❌ Missing',
-        apiUrl: PRINTAVO_CONFIG.apiUrl
+        token: PRINTAVO_CONFIG.token ? '✅ Set' : '❌ Missing'
       }
     });
   }
   
-  // ==========================================
-  // Only Allow POST Requests for GraphQL
-  // ==========================================
+  // Process POST requests
   if (req.method !== 'POST') {
-    console.log('✗ Invalid method:', req.method);
-    return res.status(405).json({ 
-      error: 'Method not allowed',
-      allowed: ['POST', 'OPTIONS', 'GET']
-    });
+    return res.status(405).json({ error: 'Method not allowed' });
   }
   
-  // ==========================================
-  // Process Request
-  // ==========================================
   try {
     console.log('==========================================');
-    console.log('📥 Incoming request from:', origin || 'unknown');
+    console.log('📥 V1 API Request from:', origin || 'unknown');
     console.log('Time:', new Date().toISOString());
     
-    // Validate request body
-    if (!req.body || !req.body.query) {
-      console.log('✗ Missing query in request body');
-      console.log('Body received:', JSON.stringify(req.body, null, 2));
+    if (!req.body || !req.body.endpoint) {
       return res.status(400).json({ 
         error: 'Bad request',
-        message: 'Request body must include "query" field',
-        receivedBody: req.body
+        message: 'Body must include "endpoint" field (e.g., "orders", "customers")'
       });
     }
     
-    console.log('📤 Forwarding to Printavo API...');
-    console.log('Query type:', req.body.query.includes('mutation') ? 'Mutation' : 'Query');
-    console.log('Query preview:', req.body.query.substring(0, 100) + '...');
+    const { endpoint, method = 'GET', data = null } = req.body;
     
-    // Validate credentials before sending
-    if (!PRINTAVO_CONFIG.email || !PRINTAVO_CONFIG.token) {
-      console.log('✗ Missing API credentials');
-      return res.status(500).json({
-        error: 'Server configuration error',
-        message: 'API credentials not configured'
-      });
-    }
+    // Build URL with auth params
+    const url = new URL(`${PRINTAVO_CONFIG.apiUrlV1}/${endpoint}`);
+    url.searchParams.append('email', PRINTAVO_CONFIG.email);
+    url.searchParams.append('token', PRINTAVO_CONFIG.token);
     
-    // Build headers - try both formats for Printavo API
-    const headers = {
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-      // Lowercase headers (Printavo v2 API format)
-      'email': PRINTAVO_CONFIG.email,
-      'token': PRINTAVO_CONFIG.token,
-      // Also try capitalized format
-      'Email': PRINTAVO_CONFIG.email,
-      'Token': PRINTAVO_CONFIG.token,
-      // And X- prefix format
-      'X-Email': PRINTAVO_CONFIG.email,
-      'X-Token': PRINTAVO_CONFIG.token
+    console.log('📤 Calling:', method, url.pathname);
+    
+    // Make request to Printavo v1
+    const options = {
+      method: method,
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      }
     };
     
-    console.log('📧 Using credentials:', {
-      email: PRINTAVO_CONFIG.email,
-      token: PRINTAVO_CONFIG.token.substring(0, 10) + '...',
-      url: PRINTAVO_CONFIG.apiUrl
-    });
+    if (data && (method === 'POST' || method === 'PUT' || method === 'PATCH')) {
+      options.body = JSON.stringify(data);
+    }
     
-    // Forward request to Printavo
-    const response = await fetch(PRINTAVO_CONFIG.apiUrl, {
-      method: 'POST',
-      headers: headers,
-      body: JSON.stringify(req.body)
-    });
-    
-    console.log('📨 Printavo response status:', response.status, response.statusText);
-    console.log('📨 Response headers:', JSON.stringify([...response.headers.entries()], null, 2));
-    
-    // Get response text first
+    const response = await fetch(url.toString(), options);
     const responseText = await response.text();
-    console.log('📨 Raw response:', responseText.substring(0, 500));
     
-    // Try to parse as JSON
-    let data;
+    console.log('📨 Status:', response.status);
+    
+    let result;
     try {
-      data = JSON.parse(responseText);
+      result = JSON.parse(responseText);
     } catch (e) {
-      console.error('❌ Failed to parse response as JSON:', e);
+      console.error('❌ Invalid JSON:', responseText.substring(0, 200));
       return res.status(500).json({
-        error: 'Invalid JSON response from Printavo',
-        response: responseText.substring(0, 1000)
+        error: 'Invalid response from Printavo',
+        response: responseText.substring(0, 500)
       });
     }
     
-    // Log response details
-    if (data.errors) {
-      console.log('⚠️ Printavo returned errors:', JSON.stringify(data.errors, null, 2));
-      
-      // Check if it's an auth error
-      const isAuthError = data.errors.some(err => 
-        err.message && (
-          err.message.toLowerCase().includes('unauthorized') ||
-          err.message.toLowerCase().includes('authentication') ||
-          err.extensions?.code === 403 ||
-          err.extensions?.code === 401
-        )
-      );
-      
-      if (isAuthError) {
-        console.log('🔐 AUTHENTICATION FAILED!');
-        console.log('   Email:', PRINTAVO_CONFIG.email);
-        console.log('   Token:', PRINTAVO_CONFIG.token.substring(0, 10) + '...');
-        console.log('   Please verify these credentials in your Printavo account');
-      }
-    } else if (data.data) {
-      console.log('✅ Success! Data received from Printavo');
-      
-      // Log what was created/retrieved
-      if (data.data.quoteCreate) {
-        console.log('   Quote created:', data.data.quoteCreate.quote?.visualId);
-      } else if (data.data.quotes) {
-        console.log('   Quotes retrieved:', data.data.quotes.nodes?.length);
-      } else if (data.data.statuses) {
-        console.log('   Statuses retrieved:', data.data.statuses.nodes?.length);
-      } else if (data.data.customers) {
-        console.log('   Customers retrieved:', data.data.customers.nodes?.length);
-      } else if (data.data.invoices) {
-        console.log('   Invoices retrieved:', data.data.invoices.nodes?.length);
-      }
-    } else {
-      console.log('⚠️ Unexpected response structure:', JSON.stringify(data, null, 2));
+    if (!response.ok) {
+      console.error('❌ Error response:', result);
+      return res.status(response.status).json(result);
     }
     
-    const duration = Date.now() - startTime;
-    console.log('⏱️ Request completed in', duration, 'ms');
+    console.log('✅ Success!');
     console.log('==========================================\n');
     
-    // Return response to client
-    return res.status(200).json(data);
+    return res.status(200).json(result);
     
   } catch (error) {
     console.error('==========================================');
     console.error('❌ Proxy error:', error.message);
-    console.error('Stack:', error.stack);
     console.error('==========================================\n');
     
     return res.status(500).json({ 
       error: 'Proxy server error',
-      message: error.message,
-      timestamp: new Date().toISOString()
+      message: error.message
     });
   }
 };
