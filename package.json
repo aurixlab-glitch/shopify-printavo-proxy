@@ -1,0 +1,12 @@
+{
+  "name": "shopify-printavo-proxy",
+  "version": "1.0.0",
+  "description": "Proxy server for Shopify to Printavo API",
+  "main": "api/proxy.js",
+  "scripts": {
+    "start": "node api/proxy.js"
+  },
+  "dependencies": {
+    "node-fetch": "^2.6.1"
+  }
+}
