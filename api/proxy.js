@@ -73,6 +73,8 @@ module.exports = async (req, res) => {
       options.body = buildForm(data);
       options.headers['Content-Type'] = 'application/x-www-form-urlencoded';
       console.log('📤 Printavo form body:', options.body.toString().slice(0, 500));
+      console.log('📤 FORM BODY (string):', options.body.toString());
+console.log('📤 FORM BODY (parsed):', Object.fromEntries(options.body.entries()));
     }
 
     const resp = await fetch(url, options);
